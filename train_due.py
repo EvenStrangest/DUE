@@ -3,14 +3,17 @@ import json
 
 import torch
 import torch.nn.functional as F
-from torch.utils.tensorboard.writer import SummaryWriter
+try:
+    from torch.utils.tensorboard.writer import SummaryWriter
+except:
+    pass
 
 from ignite.engine import Events, Engine
 from ignite.metrics import Accuracy, Average, Loss
 from ignite.contrib.handlers import ProgressBar
 
 from gpytorch.mlls import VariationalELBO
-from gpytorch.likelihoods import SoftmaxLikelihood
+from gpytorch.likelihoods import SoftmaxLikelihood, GaussianLikelihood
 
 from due import dkl
 from due.wide_resnet import WideResNet
@@ -26,7 +29,10 @@ torch.backends.cudnn.benchmark = True
 
 def main(hparams):
     results_dir = get_results_directory(hparams.output_dir)
-    writer = SummaryWriter(log_dir=str(results_dir))
+    try:
+        writer = SummaryWriter(log_dir=str(results_dir), flush_secs=10)
+    except:
+        writer = None
 
     ds = get_dataset(hparams.dataset, root=hparams.data_root)
     input_size, num_classes, train_dataset, test_dataset = ds
@@ -81,7 +87,7 @@ def main(hparams):
         )
 
         gp = dkl.GP(
-            num_outputs=num_classes,
+            num_outputs=num_classes,  # DEBUGGING!!! was num_classes
             initial_lengthscale=initial_lengthscale,
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
@@ -89,13 +95,28 @@ def main(hparams):
 
         model = dkl.DKL(feature_extractor, gp)
 
-        likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
+        # likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
+        likelihood = GaussianLikelihood()  # DEBUGGING!!!
         likelihood = likelihood.cuda()
 
         elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
 
     model = model.cuda()
+
+    # DEBUGGING!!!
+    '''
+    xxx = torch.stack([test_dataset[1][0], test_dataset[0][0]], axis=0).cuda()
+    print(f'{xxx.shape=}')
+    pred = model(xxx)
+    print(f'{pred.event_shape=}')
+    print(f'{pred.batch_shape=}')
+    ol = likelihood(pred)
+    mn = ol.mean
+    stdv = ol.stddev
+    '''
+
+    named_optim_params = dict(model.named_parameters())
 
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -203,22 +224,23 @@ def main(hparams):
             result += f"ELBO: {train_loss:.2f} "
         print(result)
 
-        writer.add_scalar("Loss/train", train_loss, trainer.state.epoch)
+        if writer is not None:
+            writer.add_scalar("Loss/train", train_loss, trainer.state.epoch)
 
         if hparams.spectral_conv:
             for name, layer in model.feature_extractor.named_modules():
                 if isinstance(layer, torch.nn.Conv2d):
-                    writer.add_scalar(
-                        f"sigma/{name}", layer.weight_sigma, trainer.state.epoch
-                    )
+                    if writer is not None:
+                        writer.add_scalar(f"sigma/{name}", layer.weight_sigma, trainer.state.epoch)
 
         if trainer.state.epoch > 150 and trainer.state.epoch % 5 == 0:
             _, auroc, aupr = get_ood_metrics(
                 hparams.dataset, "SVHN", model, likelihood, hparams.data_root
             )
             print(f"OoD Metrics - AUROC: {auroc}, AUPR: {aupr}")
-            writer.add_scalar("OoD/auroc", auroc, trainer.state.epoch)
-            writer.add_scalar("OoD/auprc", aupr, trainer.state.epoch)
+            if writer is not None:
+                writer.add_scalar("OoD/auroc", auroc, trainer.state.epoch)
+                writer.add_scalar("OoD/auprc", aupr, trainer.state.epoch)
 
         evaluator.run(test_loader)
         metrics = evaluator.state.metrics
@@ -232,8 +254,9 @@ def main(hparams):
             result += f"NLL: {test_loss:.2f} "
         result += f"Acc: {acc:.4f} "
         print(result)
-        writer.add_scalar("Loss/test", test_loss, trainer.state.epoch)
-        writer.add_scalar("Accuracy/test", acc, trainer.state.epoch)
+        if writer is not None:
+            writer.add_scalar("Loss/test", test_loss, trainer.state.epoch)
+            writer.add_scalar("Accuracy/test", acc, trainer.state.epoch)
 
         scheduler.step()
 
