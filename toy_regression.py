@@ -40,7 +40,7 @@ def make_data(n_samples, noise=0.05, seed=2):
     return x[..., None], y
 
 
-n_samples = 1e6  # DEBUGGING: was 1e3
+n_samples = 1e3  # DEBUGGING: was 1e3
 # n_samples = 1e6
 
 domain = 15
@@ -53,7 +53,7 @@ plt.scatter(x, y)
 np.random.seed(0)
 torch.manual_seed(0)
 
-batch_size = 130_000  # DEBUGGING: was 128
+batch_size = 37  # DEBUGGING: was 128
 
 X_train, y_train = make_data(n_samples)
 X_test, y_test = X_train, y_train
