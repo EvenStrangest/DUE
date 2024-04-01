@@ -39,18 +39,21 @@ def make_data(n_samples, noise=0.05, seed=2):
     y = np.cos(W * x + b).sum(0) + noise * np.random.randn(n_samples)
     return x[..., None], y
 
-n_samples = 1e3
+
+n_samples = 1e6  # DEBUGGING: was 1e3
 # n_samples = 1e6
 
 domain = 15
 
 x, y = make_data(n_samples)
+
+plt.figure()
 plt.scatter(x, y)
 
 np.random.seed(0)
 torch.manual_seed(0)
 
-batch_size = 128
+batch_size = 130_000  # DEBUGGING: was 128
 
 X_train, y_train = make_data(n_samples)
 X_test, y_test = X_train, y_train
@@ -61,7 +64,7 @@ dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, shuffle=
 ds_test = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float(), torch.from_numpy(y_test).float())
 dl_test = torch.utils.data.DataLoader(ds_test, batch_size=512, shuffle=False)
 
-steps = 5e3
+steps = 0.5e3  # DEBUGGING: was 5e3
 epochs = steps // len(dl_train) + 1
 print(f"Training with {n_samples} datapoints for {epochs} epochs")
 
@@ -145,6 +148,7 @@ if DUE:
 
 optimizer = torch.optim.Adam(parameters)
 pbar = ProgressBar()
+
 
 def step(engine, batch):
     model.train()
@@ -237,6 +241,7 @@ with torch.no_grad(), gpytorch.settings.num_likelihood_samples(64):
         output_var = pred[1].diagonal()
         output_std = output_var.sqrt().cpu()
 
+plt.figure()
 plt.xlim(-domain, domain)
 plt.ylim(-10, 10)
 plt.fill_between(x_lin, output - output_std, output + output_std, alpha=0.2, color='b')
@@ -249,6 +254,7 @@ X_vis, y_vis = make_data(n_samples=300)
 plt.scatter(X_vis.squeeze(), y_vis, facecolors='none', edgecolors='g', linewidth=2)
 plt.plot(x_lin, output, alpha=0.5)
 
+plt.figure()
 plt.xlim(-domain, domain)
 
 for i in range(12):
@@ -258,6 +264,12 @@ plt.scatter([], [])
 plt.scatter([], [])
 X_vis, y_vis = make_data(n_samples=200)
 plt.scatter(X_vis.squeeze(), y_vis, s=50)
+
+plt.show()
+
+EXACT_GP = False
+if not EXACT_GP:
+    exit(0)
 
 # Inspired by https://docs.gpytorch.ai/en/stable/examples/01_Exact_GPs/Simple_GP_Regression.html
 # only works on 1,000 samples
@@ -310,13 +322,18 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     output = observed_pred.mean
     output_std = observed_pred.stddev
 
+plt.figure()
 plt.xlim(-domain, domain)
 plt.fill_between(x_lin, output - output_std, output + output_std, alpha=0.2, color='b')
 plt.fill_between(x_lin, output - 2 * output_std, output + 2 * output_std, alpha=0.2, color='b')
 
+plt.figure()
 plt.scatter([], [])
 plt.scatter([], [])
 X_vis, y_vis = make_data(n_samples=300)
 
 plt.scatter(X_vis.squeeze(), y_vis, facecolors='none', edgecolors='g', linewidth=2)
 plt.plot(x_lin, output, alpha=0.5)
+
+plt.show()
+
